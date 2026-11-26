@@ -1,0 +1,16 @@
+services:
+  parcel-sync:
+    build: .
+    image: parcel-sync
+    container_name: parcel-sync
+    restart: unless-stopped
+    # Parcel API key: put PARCEL_API_KEY=... in a .env file next to this file
+    # (gitignored). See README "Supplying the Parcel key" for the secrets-file option.
+    environment:
+      PARCEL_API_KEY: ${PARCEL_API_KEY:?set PARCEL_API_KEY in .env}
+      # PARCEL_SYNC_INTERVAL: "1800"
+      # PARCEL_SYNC_PUSH: "1"
+      # PARCEL_SYNC_MAX_ADDS: "15"
+    volumes:
+      # Holds credentials.json, token.json, state.json, needs_manual.log.
+      - ./data:/data

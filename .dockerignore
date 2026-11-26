@@ -1,0 +1,6 @@
+# Keep secrets and local state out of the build context (and the image)
+*
+!Dockerfile
+!requirements.txt
+!parcel_sync.py
+!docker/entrypoint.sh

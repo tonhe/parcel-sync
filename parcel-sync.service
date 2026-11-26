@@ -1,0 +1,17 @@
+[Unit]
+Description=Add Gmail shipping notices to Parcel
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=parcelsync
+# Holds PARCEL_API_KEY=... (see parcel-sync.env.example); chmod 600, owned by parcelsync
+EnvironmentFile=/etc/parcel-sync.env
+Environment=PARCEL_SYNC_DIR=/home/parcelsync/.config/parcel-sync
+WorkingDirectory=/opt/parcel-sync
+ExecStart=/opt/parcel-sync/venv/bin/python /opt/parcel-sync/parcel_sync.py run
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/home/parcelsync/.config/parcel-sync
+PrivateTmp=yes

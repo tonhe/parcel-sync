@@ -1,0 +1,25 @@
+# Secrets and runtime state - never commit
+credentials.json
+client_secret*.json
+token.json
+state.json
+state.tmp
+needs_manual.log
+*.env
+!*.env.example
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Local notes
+claude-session-notes.md
+.DS_Store
+
+# Docker: local data volume and secrets
+data/
+secrets/
+.env
+!.env.example
