@@ -125,6 +125,10 @@ class HostileInputTests(unittest.TestCase):
         body = ("<a href=x " * 20_000) + ("<" * 50_000) + ("https://ups.com/" + "a" * 100) * 3000
         self.assertFast(lambda: extract_tracking(html_to_text(body)))
 
+    def test_many_labeled_numbers_without_carrier(self):
+        body = "".join("tracking %010d " % i for i in range(15_000))
+        self.assertFast(lambda: extract_tracking(body))
+
     def test_unclosed_script_drops_rest(self):
         self.assertEqual(html_to_text("ok<script>var a=1; Tracking 1Z999AA10123456784").strip(), "ok")
 

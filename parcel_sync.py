@@ -172,8 +172,16 @@ def carrier_from_format(num: str) -> str | None:
     return None
 
 
-def carrier_from_context(text: str, pos: int) -> str | None:
-    """Carrier named closest before the number, else anywhere in the mail."""
+def carrier_in_whole_mail(text: str) -> str | None:
+    """The carrier, if exactly one is named anywhere in the mail."""
+    hits = [code for code, pat in CARRIER_KEYWORDS if re.search(pat, text, re.IGNORECASE)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def carrier_from_context(text: str, pos: int, whole=None) -> str | None:
+    """Carrier named closest before the number, else anywhere in the mail.
+    `whole` is a cached carrier_in_whole_mail(text), so many candidate numbers
+    in one mail don't each rescan the whole body."""
     window = text[max(0, pos - 400):pos]
     best, best_at = None, -1
     for code, pat in CARRIER_KEYWORDS:
@@ -182,8 +190,7 @@ def carrier_from_context(text: str, pos: int) -> str | None:
                 best, best_at = code, m.start()
     if best:
         return best
-    hits = [code for code, pat in CARRIER_KEYWORDS if re.search(pat, text, re.IGNORECASE)]
-    return hits[0] if len(hits) == 1 else None
+    return whole() if whole else carrier_in_whole_mail(text)
 
 
 def plausible(num: str) -> bool:
@@ -198,6 +205,12 @@ def extract_tracking(text: str) -> list[tuple[str, str]]:
     """Return [(tracking_number, carrier_code)] found in an email body."""
     text = text[:MAX_BODY_CHARS]
     found: dict[str, str] = {}
+    cache: list = []
+
+    def whole() -> str | None:
+        if not cache:
+            cache.append(carrier_in_whole_mail(text))
+        return cache[0]
 
     def add(num: str, carrier: str | None):
         num = num.upper()
@@ -210,7 +223,7 @@ def extract_tracking(text: str) -> list[tuple[str, str]]:
 
     for m in GENERIC_URL_PARAM_RE.finditer(text):
         num = m.group(1)
-        add(num, carrier_from_format(num.upper()) or carrier_from_context(text, m.start()))
+        add(num, carrier_from_format(num.upper()) or carrier_from_context(text, m.start(), whole))
 
     for m in UPS_RE.finditer(text):
         add(m.group(0), "ups")
@@ -222,7 +235,7 @@ def extract_tracking(text: str) -> list[tuple[str, str]]:
             num = m.group(1).upper()
             if num in found:
                 continue
-            carrier = carrier_from_format(num) or carrier_from_context(text, m.start())
+            carrier = carrier_from_format(num) or carrier_from_context(text, m.start(), whole)
             # FedEx/DHL numbers are plain digits; only trust them when labeled
             # and a carrier is named, which is the case on this path.
             add(num, carrier)
