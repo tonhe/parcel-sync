@@ -78,17 +78,17 @@ CARRIER_KEYWORDS = [
 
 # Tracking numbers inside carrier tracking links
 URL_PATTERNS = [
-    ("usps", r"usps\.com/[^\s\"'<>]*?(?:tLabels|qtc_tLabels1|tRef=fullpage&tLc=\d+&text28777=&tLabels)=([A-Z0-9]{10,34})"),
-    ("ups", r"ups\.com/[^\s\"'<>]*?(?:tracknum|trackNums|InquiryNumber1)=([A-Z0-9]{10,34})"),
-    ("fedex", r"fedex\.com/[^\s\"'<>]*?(?:trknbr|tracknumbers|tracknumber_list)=(\d{12,22})"),
-    ("dhl", r"dhl\.com/[^\s\"'<>]*?(?:tracking-id|AWB|trackingNumber)=([A-Z0-9]{9,34})"),
+    ("usps", r"usps\.com/[^\s\"'<>]{0,2048}?(?:tLabels|qtc_tLabels1|tRef=fullpage&tLc=\d+&text28777=&tLabels)=([A-Z0-9]{10,34})"),
+    ("ups", r"ups\.com/[^\s\"'<>]{0,2048}?(?:tracknum|trackNums|InquiryNumber1)=([A-Z0-9]{10,34})"),
+    ("fedex", r"fedex\.com/[^\s\"'<>]{0,2048}?(?:trknbr|tracknumbers|tracknumber_list)=(\d{12,22})"),
+    ("dhl", r"dhl\.com/[^\s\"'<>]{0,2048}?(?:tracking-id|AWB|trackingNumber)=([A-Z0-9]{9,34})"),
 ]
 
 # Tier 2: tracking pages from aggregators and merchants (Narvar, AfterShip,
 # Route, Shopify order status and the like) that carry the number as a URL
 # parameter. Carrier comes from the number's format or the mail's wording.
 GENERIC_URL_PARAM_RE = re.compile(
-    r"https?://[^\s\"'<>]*?[?&](?:tracking_?numbers?|trackingNumbers?|tracking_?no|"
+    r"https?://[^\s\"'<>]{0,2048}?[?&](?:tracking_?numbers?|trackingNumbers?|tracking_?no|"
     r"tracking_?id|tracking|trackNum|tracknum|tn|tracking_code)=([A-Z0-9]{10,34})\b",
     re.IGNORECASE,
 )
@@ -104,7 +104,7 @@ RESOLVE_HOSTS = [h.strip().lower() for h in os.environ.get(
     "shopify.com,ups.com,fedex.com,usps.com,dhl.com,ontrac.com",
 ).split(",") if h.strip()]
 MAX_LINKS_TO_RESOLVE = 5
-LINK_RE = re.compile(r"https?://[^\s\"'<>)\]|]+", re.IGNORECASE)
+LINK_RE = re.compile(r"https?://[^\s\"'<>)\]|]{1,2048}", re.IGNORECASE)
 TRACK_WORDS_RE = re.compile(r"track|shipment|delivery|package", re.IGNORECASE)
 
 # Formats distinctive enough to trust without a label
@@ -112,22 +112,55 @@ UPS_RE = re.compile(r"\b1Z[0-9A-Z]{16}\b")
 USPS_RE = re.compile(r"\b9[2-5]\d{18,20}\b")  # 20-22 digit IMpb, starts 92-95
 
 # "Tracking Number: X", "Tracking #X", "Tracking No. X"
+# Mail bodies are untrusted: every repeat is bounded so a long run of
+# whitespace can't cause catastrophic backtracking.
 LABELED_RE = re.compile(
-    r"tracking\s*(?:number|no\.?|#|id)?\s*[:#]?\s*\|?\s*([A-Z0-9]{10,34})\b",
+    r"tracking[ \t]{0,3}(?:number|no\.?|#|id)?[\s:#|]{0,10}([A-Z0-9]{10,34})\b",
     re.IGNORECASE,
 )
 # Apple-style: "Tracking Number" on one line, number on the next
 LABELED_NEXTLINE_RE = re.compile(
-    r"tracking\s*(?:number|no\.?|#)\s*\n\s*([A-Z0-9]{10,34})\b", re.IGNORECASE
+    r"tracking[ \t]{0,3}(?:number|no\.?|#)[ \t]{0,10}\r?\n\s{0,10}([A-Z0-9]{10,34})\b",
+    re.IGNORECASE,
 )
+
+# Parse at most this much of each mail. Real shipping notices are far smaller.
+MAX_BODY_CHARS = 300_000
+# A shipping notice rarely carries more than a few numbers. Capping this keeps
+# one hostile mail from using up the daily add limit.
+MAX_NUMBERS_PER_MESSAGE = int(os.environ.get("PARCEL_SYNC_MAX_PER_MESSAGE", "3"))
+
+
+_BLOCK_OPEN_RE = re.compile(r"<(script|style)\b", re.IGNORECASE)
+
+
+def _strip_script_style(raw: str) -> str:
+    """Drop <script>/<style> blocks in one linear pass (an unclosed block
+    drops the rest of the document)."""
+    low, out, i = raw.lower(), [], 0
+    while True:
+        m = _BLOCK_OPEN_RE.search(raw, i)
+        if not m:
+            out.append(raw[i:])
+            break
+        out.append(raw[i:m.start()])
+        end = low.find("</" + m.group(1).lower(), m.end())
+        if end == -1:
+            break
+        close = low.find(">", end)
+        if close == -1:
+            break
+        i = close + 1
+    return " ".join(out)
 
 
 def html_to_text(raw: str) -> str:
     """Rough HTML to text that keeps hrefs, so tracking links survive."""
-    raw = re.sub(r"(?is)<(script|style).*?</\1>", " ", raw)
-    raw = re.sub(r'(?i)<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>', r" \1 ", raw)
-    raw = re.sub(r"(?i)<br\s*/?>|</(p|div|tr|li|h\d)>", "\n", raw)
-    raw = re.sub(r"<[^>]+>", " ", raw)
+    raw = _strip_script_style(raw[:MAX_BODY_CHARS])
+    raw = re.sub(r'(?i)<a\s[^<>]{0,2000}?href=["\']([^"\'<>]{1,2048})["\'][^<>]{0,2000}>',
+                 r" \1 ", raw)
+    raw = re.sub(r"(?i)<br[ \t/]{0,5}>|</(p|div|tr|li|h\d)>", "\n", raw)
+    raw = re.sub(r"<[^<>]*>", " ", raw)
     return html.unescape(raw)
 
 
@@ -163,6 +196,7 @@ def plausible(num: str) -> bool:
 
 def extract_tracking(text: str) -> list[tuple[str, str]]:
     """Return [(tracking_number, carrier_code)] found in an email body."""
+    text = text[:MAX_BODY_CHARS]
     found: dict[str, str] = {}
 
     def add(num: str, carrier: str | None):
@@ -420,6 +454,13 @@ def cmd_run(args) -> int:
         hits = extract_tracking(text)
         if not hits and RESOLVE_LINKS:
             hits = resolve_tracking_links(text)
+        if len(hits) > MAX_NUMBERS_PER_MESSAGE:
+            log.warning("MANUAL %d numbers in one mail (limit %d), not adding: %s",
+                        len(hits), MAX_NUMBERS_PER_MESSAGE, desc)
+            if not args.dry_run:
+                needs_manual(msg, f"{len(hits)} numbers: {desc}")
+                state["messages"][mid] = time.time()
+            continue
         if not hits:
             log.info("MANUAL no tracking number found: %s", desc)
             if not args.dry_run:

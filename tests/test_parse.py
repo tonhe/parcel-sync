@@ -98,6 +98,36 @@ class ParseTests(unittest.TestCase):
     def test_unlabeled_digits_ignored(self):
         self.assertEqual(extract_tracking(UNLABELED_DIGITS), [])
 
+    def test_labeled_with_extra_spacing_and_pipe(self):
+        self.assertEqual(extract_tracking("Shipped via FedEx. Tracking Number:   | 771234560002"),
+                         [("771234560002", "fedex")])
+
+
+class HostileInputTests(unittest.TestCase):
+    """Anyone can email you, so the parser must stay fast on crafted bodies."""
+
+    def assertFast(self, fn, limit=2.0):
+        import time
+        start = time.monotonic()
+        fn()
+        self.assertLess(time.monotonic() - start, limit)
+
+    def test_whitespace_run_after_label(self):
+        for ws in (" ", "\n", " |\n"):
+            body = "tracking" + ws * 50_000 + "x"
+            self.assertFast(lambda: extract_tracking(body))
+
+    def test_many_unclosed_script_tags(self):
+        body = "<script>" * 40_000 + "<style" * 40_000
+        self.assertFast(lambda: html_to_text(body))
+
+    def test_many_unclosed_tags_and_links(self):
+        body = ("<a href=x " * 20_000) + ("<" * 50_000) + ("https://ups.com/" + "a" * 100) * 3000
+        self.assertFast(lambda: extract_tracking(html_to_text(body)))
+
+    def test_unclosed_script_drops_rest(self):
+        self.assertEqual(html_to_text("ok<script>var a=1; Tracking 1Z999AA10123456784").strip(), "ok")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -391,6 +391,7 @@ For systemd, add these to `/etc/parcel-sync.env`. For Docker, add them under `en
 |---|---|---|
 | `PARCEL_SYNC_PUSH` | `1` | `0` turns off Parcel's push notification for each add |
 | `PARCEL_SYNC_MAX_ADDS` | `15` | adds per rolling 24 hours (keep it under Parcel's 20) |
+| `PARCEL_SYNC_MAX_PER_MESSAGE` | `3` | a mail with more numbers than this goes to `needs_manual.log` instead of being added |
 | `PARCEL_SYNC_QUERY` | shipping-related subjects, last 3 days, no Amazon or Promotions | Gmail search used to find candidate mail (same syntax as the Gmail search box) |
 | `PARCEL_SYNC_RESOLVE_LINKS` | `0` | `1` follows "click here to track" redirect links when no number is found in the mail. Uses HEAD requests and reads only redirect headers, never page content |
 | `PARCEL_SYNC_RESOLVE_HOSTS` | common click-trackers and carrier sites | comma-separated host allowlist for `PARCEL_SYNC_RESOLVE_LINKS` |
@@ -403,6 +404,7 @@ For systemd, add these to `/etc/parcel-sync.env`. For Docker, add them under `en
 
 - Gmail access is read-only and stays on your server. Nothing is sent anywhere except to Google (to read mail) and Parcel (to add deliveries).
 - For each delivery, Parcel receives the tracking number, carrier, and a description made from the sender name and subject line (first 60 characters).
+- Anyone can email you, so anyone can get a number added: the sender name and subject they choose show up as the description, and in the push notification. Each mail can add at most 3 numbers, and the daily cap still applies. Turn off pushes with `PARCEL_SYNC_PUSH=0` if that bothers you.
 - With `PARCEL_SYNC_RESOLVE_LINKS=1`, the script also sends HEAD requests to tracking links on the allowlisted hosts. Those can count as "clicks" for the sender's analytics.
 
 ## Troubleshooting
